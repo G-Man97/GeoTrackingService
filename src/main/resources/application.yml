@@ -1,0 +1,12 @@
+spring:
+  datasource:
+    url: jdbc:oracle:thin:@localhost:1522:orcl
+    driver-class-name: oracle.jdbc.OracleDriver
+    username: SYSTEM
+    password: oracle
+  jpa:
+    hibernate:
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.CamelCaseToUnderscoresNamingStrategy
+      ddl-auto: none
+    show-sql: true
