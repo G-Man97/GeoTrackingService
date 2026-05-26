@@ -43,7 +43,7 @@ public class GeoPoint {
 
     private Float speed;
 
-    private Double alt;
+    private Float alt;
 
     private Float bearing;
 

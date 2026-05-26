@@ -26,6 +26,8 @@ public class ProcessService {
     public static final Map<Long, TreeSet<GeoTrack>> trackMap = new HashMap<>();
 
 
+    // Для тестирования можно оставить задержку в 4 секунды
+    // для прода можно выставить 5 минут
     @Transactional
     @Scheduled(fixedDelay = 4, timeUnit = TimeUnit.SECONDS)
     public void processGeoPoints() {
@@ -45,7 +47,7 @@ public class ProcessService {
 
         geoTrackRepository.saveAllAndFlush(tracksToSave);
 
-        var pointUpdates = new ArrayList<PointUpdateDto>(500);
+        var pointUpdates = new ArrayList<PointUpdateDto>(points.size());
         setTracksAndGeoZonesToPoints(points, pointUpdates);
 
         pointUpdates.forEach(update ->

@@ -84,7 +84,6 @@ public class GeoTrackService {
                             }
                             tracksToDelete.put(current, prev);
                             tracksToSave.remove(current);
-//                            iterator.remove();
                             continue;
                         }
                         prev = current;

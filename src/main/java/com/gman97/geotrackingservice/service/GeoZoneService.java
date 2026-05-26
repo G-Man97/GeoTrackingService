@@ -19,6 +19,11 @@ public class GeoZoneService {
     private final GeoZoneRepository geoZoneRepository;
     private final GeoZonePointRepository geoZonePointRepository;
 
+    private static final int GEO_ZONE_CACHE_SIZE = 60;
+    private static final int MAX_DEVICE_FOR_CACHE = 10;
+    private static final int CANDIDATES_CACHE_SIZE = 10;
+    private static final float CACHEABLE_RADIUS = 25000F;
+    private static final int MAX_CACHE_SIZE_FOR_ONE_DEVICE = 6;
     private final LinkedHashMap<Long, GeoZone> geoZoneCache = new LinkedHashMap<>(80); // 60 геозон
     private final LinkedHashMap<Long, LinkedList<Long>> lastGeoZoneIdsByDeviceIdKey = new LinkedHashMap<>(14); // 10 устройств
     private final LinkedHashMap<GeoPoint, List<GeoZone>> geoZoneCandidatesCache = new LinkedHashMap<>(14); // 10 областей
@@ -34,7 +39,7 @@ public class GeoZoneService {
         if (mayBeZone.isPresent()) return mayBeZone;
 
         // Теперь проверяем в кэше геозон-кандитатов
-        mayBeZone = checkCandidatesCache(point);
+        mayBeZone = checkCandidatesCache(pointLat, pointLon, deviceId);
         if (mayBeZone.isPresent()) {
             if (mayBeZone.get().getId() == null) {
                 return Optional.empty();
@@ -45,7 +50,7 @@ public class GeoZoneService {
         // Получаем кандидатов из БД
         var candidates = geoZoneRepository.findCandidatesByPointCoordinates(pointLat, pointLon);
 
-        if (geoZoneCandidatesCache.size() == 10) {
+        if (geoZoneCandidatesCache.size() == CANDIDATES_CACHE_SIZE) {
             geoZoneCandidatesCache.pollLastEntry();
         }
 
@@ -55,47 +60,25 @@ public class GeoZoneService {
             return Optional.empty();
         }
 
-        // Разделяем на окружности и многоугольники
-        var circles = candidates.stream()
-                .filter(z -> Geometry.CIRCLE.equals(z.getGeometry()))
-                .toList();
-
-        var polygons = candidates.stream()
-                .filter(z -> Geometry.POLY.equals(z.getGeometry()))
-                .toList();
-
-        // Проверяем окружности
-        var validCircle = circles.stream()
-                .filter(zone -> isPointInCircle(pointLat, pointLon, zone))
+        mayBeZone = candidates.stream()
+                .filter(z -> isPointInCircleOrPolygon(pointLat, pointLon, z))
                 .findFirst();
 
-        if (validCircle.isPresent()) {
-            updateCache(deviceId, validCircle.get());
-            return validCircle;
-        }
+        mayBeZone.ifPresent(zone -> updateCache(deviceId, zone));
 
-        // Проверяем многоугольники
-        var validPolygon = polygons.stream()
-                .filter(zone -> isPointInPolygon(pointLat, pointLon, zone))
-                .findFirst();
-
-        validPolygon.ifPresent(zone -> updateCache(deviceId, zone));
-
-        return validPolygon;
+        return mayBeZone;
     }
 
 
-    public Optional<GeoZone> checkCandidatesCache(GeoPoint point) {
+    private Optional<GeoZone> checkCandidatesCache(Float pointLat, Float pointLon, Long deviceId) {
         if (geoZoneCandidatesCache.isEmpty()) {
             return Optional.empty();
         }
-        var pointLat = point.getLat();
-        var pointLon = point.getLon();
-        var deviceId = point.getGeoDevice().getId();
-        List<Map.Entry<GeoPoint, List<GeoZone>>> entries = new ArrayList<>(geoZoneCandidatesCache.entrySet());
+
+        var entries = new ArrayList<>(geoZoneCandidatesCache.entrySet());
 
         var geoZoneForCache = new GeoZone();
-        geoZoneForCache.setRadius(25000f);
+        geoZoneForCache.setRadius(CACHEABLE_RADIUS);
 
         var flag = false;
 
@@ -128,7 +111,7 @@ public class GeoZoneService {
 
                     if (candidate.getGeometry().equals(Geometry.CIRCLE)) {
                         if (zoneIds != null) {
-                            if (zoneIds.size() == 6) {
+                            if (zoneIds.size() == MAX_CACHE_SIZE_FOR_ONE_DEVICE) {
                                 zoneIds.removeLast();
                             }
                         } else {
@@ -139,7 +122,7 @@ public class GeoZoneService {
                         zoneIds.addFirst(candidate.getId());
                     }
 
-                    if (geoZoneCache.size() == 60) {
+                    if (geoZoneCache.size() == GEO_ZONE_CACHE_SIZE) {
                         geoZoneCache.pollLastEntry();
                     }
 
@@ -162,20 +145,20 @@ public class GeoZoneService {
                 var list = new LinkedList<Long>();
                 list.addFirst(geoZoneId);
 
-                if (lastGeoZoneIdsByDeviceIdKey.size() == 10) {
+                if (lastGeoZoneIdsByDeviceIdKey.size() == MAX_DEVICE_FOR_CACHE) {
                     lastGeoZoneIdsByDeviceIdKey.pollLastEntry();
                 }
 
                 lastGeoZoneIdsByDeviceIdKey.putFirst(deviceId, list);
             } else {
-                if (zoneIdList.size() == 6) {
+                if (zoneIdList.size() == MAX_CACHE_SIZE_FOR_ONE_DEVICE) {
                     zoneIdList.removeLast();
                 }
                 zoneIdList.addFirst(geoZoneId);
             }
         }
 
-        if (geoZoneCache.size() == 60) {
+        if (geoZoneCache.size() == GEO_ZONE_CACHE_SIZE) {
             geoZoneCache.pollLastEntry();
         }
         geoZoneCache.putFirst(geoZoneId, geoZone);
@@ -208,7 +191,7 @@ public class GeoZoneService {
                 iterator.remove();
                 zoneIds.addFirst(zoneId);
 
-                if (geoZoneCache.size() == 60) {
+                if (geoZoneCache.size() == GEO_ZONE_CACHE_SIZE) {
                     geoZoneCache.pollLastEntry();
                 }
 
@@ -225,9 +208,6 @@ public class GeoZoneService {
     private boolean isPointInCircle(Float pointLat, Float pointLon, GeoZone circle) {
         double distance = calculateDistance(pointLat, pointLon,
                 circle.getLatCenter(), circle.getLonCenter());
-        if (circle.getRadius() < 25000) {
-            System.out.println(circle.getRadius());
-        }
         return distance <= circle.getRadius();
     }
 

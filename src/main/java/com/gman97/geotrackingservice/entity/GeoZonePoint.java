@@ -25,6 +25,4 @@ public class GeoZonePoint {
 
     private Float lon;
 
-//    private Float radius;
-
 }
